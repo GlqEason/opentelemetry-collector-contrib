@@ -77,6 +77,9 @@ func TestMetricsBuilder(t *testing.T) {
 			allMetricsCount++
 			mb.RecordSystemProcessesCreatedDataPoint(ts, 1)
 
+			allMetricsCount++
+			mb.RecordSystemProcessesOpenFileDescriptorsDataPoint(ts, 1)
+
 			res := pcommon.NewResource()
 			metrics := mb.Emit(WithResource(res))
 			if tt.name == "reaggregate_set" {
@@ -160,6 +163,20 @@ func TestMetricsBuilder(t *testing.T) {
 					assert.Equal(t, "Total number of created processes. Supported on Linux and OpenBSD.", mi.Description())
 					assert.Equal(t, "{processes}", mi.Unit())
 					assert.True(t, mi.Sum().IsMonotonic())
+					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
+					dp := mi.Sum().DataPoints().At(0)
+					assert.Equal(t, start, dp.StartTimestamp())
+					assert.Equal(t, ts, dp.Timestamp())
+					assert.Equal(t, pmetric.NumberDataPointValueTypeInt, dp.ValueType())
+					assert.Equal(t, int64(1), dp.IntValue())
+				case "system.processes.open_file_descriptors":
+					assert.False(t, validatedMetrics["system.processes.open_file_descriptors"], "Found a duplicate in the metrics slice: system.processes.open_file_descriptors")
+					validatedMetrics["system.processes.open_file_descriptors"] = true
+					assert.Equal(t, pmetric.MetricTypeSum, mi.Type())
+					assert.Equal(t, 1, mi.Sum().DataPoints().Len())
+					assert.Equal(t, "Total number of open file descriptors held by all processes.", mi.Description())
+					assert.Equal(t, "{count}", mi.Unit())
+					assert.False(t, mi.Sum().IsMonotonic())
 					assert.Equal(t, pmetric.AggregationTemporalityCumulative, mi.Sum().AggregationTemporality())
 					dp := mi.Sum().DataPoints().At(0)
 					assert.Equal(t, start, dp.StartTimestamp())

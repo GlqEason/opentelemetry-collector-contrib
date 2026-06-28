@@ -76,10 +76,31 @@ func (ms *SystemProcessesCreatedMetricConfig) Unmarshal(parser *confmap.Conf) er
 	return nil
 }
 
+// SystemProcessesOpenFileDescriptorsMetricConfig provides config for the system.processes.open_file_descriptors metric.
+type SystemProcessesOpenFileDescriptorsMetricConfig struct {
+	Enabled          bool `mapstructure:"enabled"`
+	enabledSetByUser bool
+}
+
+func (ms *SystemProcessesOpenFileDescriptorsMetricConfig) Unmarshal(parser *confmap.Conf) error {
+	if parser == nil {
+		return nil
+	}
+
+	err := parser.Unmarshal(ms)
+	if err != nil {
+		return err
+	}
+
+	ms.enabledSetByUser = parser.IsSet("enabled")
+	return nil
+}
+
 // MetricsConfig provides config for processes metrics.
 type MetricsConfig struct {
-	SystemProcessesCount   SystemProcessesCountMetricConfig   `mapstructure:"system.processes.count"`
-	SystemProcessesCreated SystemProcessesCreatedMetricConfig `mapstructure:"system.processes.created"`
+	SystemProcessesCount               SystemProcessesCountMetricConfig               `mapstructure:"system.processes.count"`
+	SystemProcessesCreated             SystemProcessesCreatedMetricConfig             `mapstructure:"system.processes.created"`
+	SystemProcessesOpenFileDescriptors SystemProcessesOpenFileDescriptorsMetricConfig `mapstructure:"system.processes.open_file_descriptors"`
 }
 
 func DefaultMetricsConfig() MetricsConfig {
@@ -91,6 +112,9 @@ func DefaultMetricsConfig() MetricsConfig {
 		},
 		SystemProcessesCreated: SystemProcessesCreatedMetricConfig{
 			Enabled: true,
+		},
+		SystemProcessesOpenFileDescriptors: SystemProcessesOpenFileDescriptorsMetricConfig{
+			Enabled: false,
 		},
 	}
 }

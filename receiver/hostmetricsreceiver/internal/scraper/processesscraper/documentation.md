@@ -33,3 +33,23 @@ Total number of created processes. Supported on Linux and OpenBSD.
 | Unit | Metric Type | Value Type | Aggregation Temporality | Monotonic | Stability |
 | ---- | ----------- | ---------- | ----------------------- | --------- | --------- |
 | {processes} | Sum | Int | Cumulative | true | Development |
+
+## Optional Metrics
+
+The following metrics are not emitted by default. Each of them can be enabled by applying the following configuration:
+
+```yaml
+metrics:
+  <metric_name>:
+    enabled: true
+```
+
+### system.processes.open_file_descriptors
+
+Total number of open file descriptors held by all processes.
+
+On Linux this value is obtained from /proc/sys/fs/file-nr in a single O(1) kernel read, making it an exact atomic snapshot of the system-wide total. On Windows it uses GetPerformanceInfo to retrieve the global HandleCount. Note that on Windows the count includes all kernel object handles (file handles, registry handles, synchronization objects, etc.), not just file descriptors, so the values are not comparable across platforms. On macOS and BSDs the value is obtained by enumerating all processes and summing per-process open descriptors; processes whose descriptor count cannot be read (e.g. due to insufficient permissions) are skipped, so the value may slightly underestimate the true total.
+
+| Unit | Metric Type | Value Type | Aggregation Temporality | Monotonic | Stability |
+| ---- | ----------- | ---------- | ----------------------- | --------- | --------- |
+| {count} | Sum | Int | Cumulative | false | Development |

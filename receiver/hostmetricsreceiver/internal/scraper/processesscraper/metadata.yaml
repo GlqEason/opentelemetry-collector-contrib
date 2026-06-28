@@ -37,3 +37,23 @@ metrics:
       value_type: int
       aggregation_temporality: cumulative
       monotonic: true
+  system.processes.open_file_descriptors:
+    enabled: false
+    description: Total number of open file descriptors held by all processes.
+    extended_documentation: >-
+      On Linux this value is obtained from /proc/sys/fs/file-nr in a single
+      O(1) kernel read, making it an exact atomic snapshot of the system-wide
+      total. On Windows it uses GetPerformanceInfo to retrieve the global
+      HandleCount. Note that on Windows the count includes all kernel object
+      handles (file handles, registry handles, synchronization objects, etc.),
+      not just file descriptors, so the values are not comparable across
+      platforms. On macOS and BSDs the value is obtained by enumerating all
+      processes and summing per-process open descriptors; processes whose
+      descriptor count cannot be read (e.g. due to insufficient permissions)
+      are skipped, so the value may slightly underestimate the true total.
+    unit: '{count}'
+    stability: development
+    sum:
+      value_type: int
+      aggregation_temporality: cumulative
+      monotonic: false

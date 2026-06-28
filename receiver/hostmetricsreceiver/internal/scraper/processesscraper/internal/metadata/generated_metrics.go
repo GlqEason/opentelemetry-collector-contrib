@@ -3,14 +3,13 @@
 package metadata
 
 import (
-	"slices"
-	"time"
-
 	"go.opentelemetry.io/collector/component"
 	"go.opentelemetry.io/collector/pdata/pcommon"
 	"go.opentelemetry.io/collector/pdata/pmetric"
 	"go.opentelemetry.io/collector/scraper"
 	conventions "go.opentelemetry.io/otel/semconv/v1.9.0"
+	"slices"
+	"time"
 )
 
 const (
@@ -98,11 +97,15 @@ var MetricsInfo = metricsInfo{
 	SystemProcessesCreated: metricInfo{
 		Name: "system.processes.created",
 	},
+	SystemProcessesOpenFileDescriptors: metricInfo{
+		Name: "system.processes.open_file_descriptors",
+	},
 }
 
 type metricsInfo struct {
-	SystemProcessesCount   metricInfo
-	SystemProcessesCreated metricInfo
+	SystemProcessesCount               metricInfo
+	SystemProcessesCreated             metricInfo
+	SystemProcessesOpenFileDescriptors metricInfo
 }
 
 type metricInfo struct {
@@ -253,16 +256,69 @@ func newMetricSystemProcessesCreated(cfg SystemProcessesCreatedMetricConfig) met
 	return m
 }
 
+type metricSystemProcessesOpenFileDescriptors struct {
+	data     pmetric.Metric                                 // data buffer for generated metric.
+	config   SystemProcessesOpenFileDescriptorsMetricConfig // metric config provided by user.
+	capacity int                                            // max observed number of data points added to the metric.
+}
+
+// init fills system.processes.open_file_descriptors metric with initial data.
+func (m *metricSystemProcessesOpenFileDescriptors) init() {
+	m.data.SetName("system.processes.open_file_descriptors")
+	m.data.SetDescription("Total number of open file descriptors held by all processes.")
+	m.data.SetUnit("{count}")
+	m.data.SetEmptySum()
+	m.data.Sum().SetIsMonotonic(false)
+	m.data.Sum().SetAggregationTemporality(pmetric.AggregationTemporalityCumulative)
+}
+
+func (m *metricSystemProcessesOpenFileDescriptors) recordDataPoint(start pcommon.Timestamp, ts pcommon.Timestamp, val int64) {
+	if !m.config.Enabled {
+		return
+	}
+	dp := m.data.Sum().DataPoints().AppendEmpty()
+	dp.SetStartTimestamp(start)
+	dp.SetTimestamp(ts)
+	dp.SetIntValue(val)
+}
+
+// updateCapacity saves max length of data point slices that will be used for the slice capacity.
+func (m *metricSystemProcessesOpenFileDescriptors) updateCapacity() {
+	if m.data.Sum().DataPoints().Len() > m.capacity {
+		m.capacity = m.data.Sum().DataPoints().Len()
+	}
+}
+
+// emit appends recorded metric data to a metrics slice and prepares it for recording another set of data points.
+func (m *metricSystemProcessesOpenFileDescriptors) emit(metrics pmetric.MetricSlice) {
+	if m.config.Enabled && m.data.Sum().DataPoints().Len() > 0 {
+		m.updateCapacity()
+		m.data.MoveTo(metrics.AppendEmpty())
+		m.init()
+	}
+}
+
+func newMetricSystemProcessesOpenFileDescriptors(cfg SystemProcessesOpenFileDescriptorsMetricConfig) metricSystemProcessesOpenFileDescriptors {
+	m := metricSystemProcessesOpenFileDescriptors{config: cfg}
+
+	if cfg.Enabled {
+		m.data = pmetric.NewMetric()
+		m.init()
+	}
+	return m
+}
+
 // MetricsBuilder provides an interface for scrapers to report metrics while taking care of all the transformations
 // required to produce metric representation defined in metadata and user config.
 type MetricsBuilder struct {
-	config                       MetricsBuilderConfig // config of the metrics builder.
-	startTime                    pcommon.Timestamp    // start time that will be applied to all recorded data points.
-	metricsCapacity              int                  // maximum observed number of metrics per resource.
-	metricsBuffer                pmetric.Metrics      // accumulates metrics data before emitting.
-	buildInfo                    component.BuildInfo  // contains version information.
-	metricSystemProcessesCount   metricSystemProcessesCount
-	metricSystemProcessesCreated metricSystemProcessesCreated
+	config                                   MetricsBuilderConfig // config of the metrics builder.
+	startTime                                pcommon.Timestamp    // start time that will be applied to all recorded data points.
+	metricsCapacity                          int                  // maximum observed number of metrics per resource.
+	metricsBuffer                            pmetric.Metrics      // accumulates metrics data before emitting.
+	buildInfo                                component.BuildInfo  // contains version information.
+	metricSystemProcessesCount               metricSystemProcessesCount
+	metricSystemProcessesCreated             metricSystemProcessesCreated
+	metricSystemProcessesOpenFileDescriptors metricSystemProcessesOpenFileDescriptors
 }
 
 // MetricBuilderOption applies changes to default metrics builder.
@@ -284,12 +340,13 @@ func WithStartTime(startTime pcommon.Timestamp) MetricBuilderOption {
 }
 func NewMetricsBuilder(mbc MetricsBuilderConfig, settings scraper.Settings, options ...MetricBuilderOption) *MetricsBuilder {
 	mb := &MetricsBuilder{
-		config:                       mbc,
-		startTime:                    pcommon.NewTimestampFromTime(time.Now()),
-		metricsBuffer:                pmetric.NewMetrics(),
-		buildInfo:                    settings.BuildInfo,
-		metricSystemProcessesCount:   newMetricSystemProcessesCount(mbc.Metrics.SystemProcessesCount),
-		metricSystemProcessesCreated: newMetricSystemProcessesCreated(mbc.Metrics.SystemProcessesCreated),
+		config:                                   mbc,
+		startTime:                                pcommon.NewTimestampFromTime(time.Now()),
+		metricsBuffer:                            pmetric.NewMetrics(),
+		buildInfo:                                settings.BuildInfo,
+		metricSystemProcessesCount:               newMetricSystemProcessesCount(mbc.Metrics.SystemProcessesCount),
+		metricSystemProcessesCreated:             newMetricSystemProcessesCreated(mbc.Metrics.SystemProcessesCreated),
+		metricSystemProcessesOpenFileDescriptors: newMetricSystemProcessesOpenFileDescriptors(mbc.Metrics.SystemProcessesOpenFileDescriptors),
 	}
 
 	for _, op := range options {
@@ -358,6 +415,7 @@ func (mb *MetricsBuilder) EmitForResource(options ...ResourceMetricsOption) {
 	ils.Metrics().EnsureCapacity(mb.metricsCapacity)
 	mb.metricSystemProcessesCount.emit(ils.Metrics())
 	mb.metricSystemProcessesCreated.emit(ils.Metrics())
+	mb.metricSystemProcessesOpenFileDescriptors.emit(ils.Metrics())
 
 	for _, op := range options {
 		op.apply(rm)
@@ -387,6 +445,11 @@ func (mb *MetricsBuilder) RecordSystemProcessesCountDataPoint(ts pcommon.Timesta
 // RecordSystemProcessesCreatedDataPoint adds a data point to system.processes.created metric.
 func (mb *MetricsBuilder) RecordSystemProcessesCreatedDataPoint(ts pcommon.Timestamp, val int64) {
 	mb.metricSystemProcessesCreated.recordDataPoint(mb.startTime, ts, val)
+}
+
+// RecordSystemProcessesOpenFileDescriptorsDataPoint adds a data point to system.processes.open_file_descriptors metric.
+func (mb *MetricsBuilder) RecordSystemProcessesOpenFileDescriptorsDataPoint(ts pcommon.Timestamp, val int64) {
+	mb.metricSystemProcessesOpenFileDescriptors.recordDataPoint(mb.startTime, ts, val)
 }
 
 // Reset resets metrics builder to its initial state. It should be used when external metrics source is restarted,

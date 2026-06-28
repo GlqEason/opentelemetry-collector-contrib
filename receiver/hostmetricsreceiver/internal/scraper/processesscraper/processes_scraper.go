@@ -27,6 +27,25 @@ var metricsLength = func() int {
 	if enableProcessesCreated {
 		n++
 	}
+	if enableOpenFileDescriptors {
+		n++
+	}
+	return n
+}()
+
+// countCreatedMetricsLen is the number of metrics produced by
+// getProcessesMetadata (system.processes.count and system.processes.created).
+// It is reported as the failed count when that metadata collection fails, so
+// the open file descriptors metric is not counted as failed by a failure in
+// the unrelated count/created data source (and vice versa).
+var countCreatedMetricsLen = func() int {
+	n := 0
+	if enableProcessesCount {
+		n++
+	}
+	if enableProcessesCreated {
+		n++
+	}
 	return n
 }()
 
@@ -39,6 +58,7 @@ type processesScraper struct {
 	// for mocking gopsutil
 	getMiscStats func(context.Context) (*load.MiscStat, error)
 	getProcesses func(context.Context) ([]proc, error)
+	getOpenFDs   func(context.Context) (int64, error)
 	bootTime     func(context.Context) (uint64, error)
 }
 
@@ -66,7 +86,8 @@ func newProcessesScraper(_ context.Context, settings scraper.Settings, cfg *Conf
 			}
 			return ret, err
 		},
-		bootTime: host.BootTimeWithContext,
+		getOpenFDs: getProcessOpenFDs,
+		bootTime:   host.BootTimeWithContext,
 	}
 }
 
@@ -87,20 +108,31 @@ func (s *processesScraper) scrape(ctx context.Context) (pmetric.Metrics, error) 
 	metrics := md.ResourceMetrics().AppendEmpty().ScopeMetrics().AppendEmpty().Metrics()
 	metrics.EnsureCapacity(metricsLength)
 
+	var errs scrapererror.ScrapeErrors
+
 	processMetadata, err := s.getProcessesMetadata(ctx)
 	if err != nil {
-		return pmetric.NewMetrics(), scrapererror.NewPartialScrapeError(err, metricsLength)
-	}
+		errs.AddPartial(countCreatedMetricsLen, err)
+	} else {
+		if enableProcessesCount && processMetadata.countByStatus != nil {
+			for status, count := range processMetadata.countByStatus {
+				s.mb.RecordSystemProcessesCountDataPoint(now, count, status)
+			}
+		}
 
-	if enableProcessesCount && processMetadata.countByStatus != nil {
-		for status, count := range processMetadata.countByStatus {
-			s.mb.RecordSystemProcessesCountDataPoint(now, count, status)
+		if enableProcessesCreated && processMetadata.processesCreated != nil {
+			s.mb.RecordSystemProcessesCreatedDataPoint(now, *processMetadata.processesCreated)
 		}
 	}
 
-	if enableProcessesCreated && processMetadata.processesCreated != nil {
-		s.mb.RecordSystemProcessesCreatedDataPoint(now, *processMetadata.processesCreated)
+	if enableOpenFileDescriptors && s.config.Metrics.SystemProcessesOpenFileDescriptors.Enabled {
+		fds, fdErr := s.getOpenFDs(ctx)
+		if fdErr != nil {
+			errs.AddPartial(1, fdErr)
+		} else {
+			s.mb.RecordSystemProcessesOpenFileDescriptorsDataPoint(now, fds)
+		}
 	}
 
-	return s.mb.Emit(), err
+	return s.mb.Emit(), errs.Combine()
 }

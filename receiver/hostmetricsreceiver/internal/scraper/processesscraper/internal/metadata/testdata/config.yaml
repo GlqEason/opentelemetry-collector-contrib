@@ -6,6 +6,8 @@ all_set:
       attributes: ["status"]
     system.processes.created:
       enabled: true
+    system.processes.open_file_descriptors:
+      enabled: true
 reaggregate_set:
   metrics:
     system.processes.count:
@@ -13,10 +15,14 @@ reaggregate_set:
       attributes: []
     system.processes.created:
       enabled: true
+    system.processes.open_file_descriptors:
+      enabled: true
 none_set:
   metrics:
     system.processes.count:
       enabled: false
       attributes: ["status"]
     system.processes.created:
+      enabled: false
+    system.processes.open_file_descriptors:
       enabled: false
